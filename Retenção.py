@@ -24,7 +24,6 @@ st.markdown(
 )
 
 st.divider()
-
 st.markdown("### 🧭 O que cada relatório responde?")
 
 def kpi_card(title: str, desc: str, example: str = ""):
@@ -187,6 +186,43 @@ if faltando:
     st.stop()
 
 # ---------------------------
+# Tradução do Tempo de retenção (CN -> PT-BR) + coluna amigável
+# ---------------------------
+MAPA_RETENCAO_PT = {
+    "1天滞留": "1 dia retido",
+    "2天滞留": "2 dias retido",
+    "3天滞留": "3 dias retido",
+    "5天滞留": "5 dias retido",
+    "7天滞留": "7 dias retido",
+    "10天滞留": "10 dias retido",
+    "15天滞留": "15 dias retido",
+    "超15天滞留": "Acima de 15 dias retido",
+}
+
+df["Tempo de retenção (PT)"] = (
+    df["Tempo de retenção"]
+    .astype(str)
+    .str.strip()
+    .map(MAPA_RETENCAO_PT)
+    .fillna(df["Tempo de retenção"].astype(str).str.strip())
+)
+
+ORDEM_RETEN_PT = [
+    "1 dia retido", "2 dias retido", "3 dias retido", "5 dias retido",
+    "7 dias retido", "10 dias retido", "15 dias retido", "Acima de 15 dias retido"
+]
+PESO_RETEN_PT = {
+    "1 dia retido": 1,
+    "2 dias retido": 2,
+    "3 dias retido": 3,
+    "5 dias retido": 5,
+    "7 dias retido": 7,
+    "10 dias retido": 10,
+    "15 dias retido": 15,
+    "Acima de 15 dias retido": 20,
+}
+
+# ---------------------------
 # Detectar colunas para "motorista" e "ocorrências"
 # ---------------------------
 driver_candidates = [
@@ -226,17 +262,16 @@ tipo_sel = st.sidebar.multiselect(
 )
 df_f = df[df["Tipo Unidade"].isin(tipo_sel)].copy()
 
-# Tempo de retenção
-ordem_reten = ["1天滞留","2天滞留","3天滞留","5天滞留","7天滞留","10天滞留","15天滞留","超15天滞留"]
-reten_unique = df_f["Tempo de retenção"].astype(str).unique().tolist()
-reten_options = [x for x in ordem_reten if x in reten_unique] + [x for x in reten_unique if x not in ordem_reten]
+# Tempo de retenção (PT)
+reten_unique = df_f["Tempo de retenção (PT)"].astype(str).unique().tolist()
+reten_options = [x for x in ORDEM_RETEN_PT if x in reten_unique] + [x for x in reten_unique if x not in ORDEM_RETEN_PT]
 
 reten_sel = st.sidebar.multiselect(
     "Tempo de retenção",
     options=reten_options,
     default=reten_options
 )
-df_f = df_f[df_f["Tempo de retenção"].astype(str).isin(reten_sel)].copy()
+df_f = df_f[df_f["Tempo de retenção (PT)"].astype(str).isin(reten_sel)].copy()
 
 # Top N e limiares
 top_n = st.sidebar.slider("Top N (listas)", 5, 50, 15)
@@ -279,11 +314,11 @@ def build_base_rank(d: pd.DataFrame) -> pd.DataFrame:
 
 def build_reten_dist(d: pd.DataFrame) -> pd.DataFrame:
     reten_dist = (
-        d.groupby("Tempo de retenção")
+        d.groupby("Tempo de retenção (PT)")
         .agg(Retidos=("Remessa", "count"))
         .reset_index()
     )
-    reten_dist["Peso"] = reten_dist["Tempo de retenção"].apply(extrair_peso)
+    reten_dist["Peso"] = reten_dist["Tempo de retenção (PT)"].map(PESO_RETEN_PT).fillna(999)
     reten_dist = reten_dist.sort_values("Peso", ascending=True)
     reten_dist["%"] = reten_dist["Retidos"] / max(len(d), 1)
     return reten_dist
@@ -364,7 +399,7 @@ with tab_ger:
 
     st.subheader("📍 Distribuição: quais dias de retenção concentram mais pedidos?")
     st.dataframe(
-        reten_dist.sort_values("Retidos", ascending=False)[["Tempo de retenção","Retidos","%"]],
+        reten_dist.sort_values("Retidos", ascending=False)[["Tempo de retenção (PT)","Retidos","%"]],
         use_container_width=True
     )
 
@@ -419,7 +454,7 @@ with tab_det:
     st.subheader("📍 Distribuição de retenção (unidade)")
     dist_u = build_reten_dist(d_u)
     st.dataframe(
-        dist_u.sort_values("Retidos", ascending=False)[["Tempo de retenção","Retidos","%"]],
+        dist_u.sort_values("Retidos", ascending=False)[["Tempo de retenção (PT)","Retidos","%"]],
         use_container_width=True
     )
 
@@ -449,7 +484,7 @@ with tab_det:
 
     st.subheader("📄 Linhas detalhadas (unidade)")
     prefer = [
-        "Remessa", "Pedidos", "Tempo de retenção", "Peso Criticidade",
+        "Remessa", "Pedidos", "Tempo de retenção (PT)", "Peso Criticidade",
         "Horário de coleta", "Horário de expedição do SC", "Data prevista de entrega",
         "Horário de Recebimento na Base", "Horário de Saída para Entrega", "Horário da entrega",
         "Origem do Pedido", "Tipo de produto"
