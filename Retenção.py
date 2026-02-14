@@ -165,6 +165,44 @@ def normalize_text_series(s: pd.Series) -> pd.Series:
     out = out.replace({"": pd.NA, "nan": pd.NA, "None": pd.NA})
     return out
 
+def show_table(d: pd.DataFrame, **kwargs):
+    """
+    Mostra tabela sem índice e formata colunas percentuais automaticamente.
+    Regra: qualquer coluna com '%' no nome vira %.2f%%.
+    Se a coluna vier como 14.9 (já em percent), converte para 0.149 antes de exibir.
+    """
+    if d is None or len(d) == 0:
+        st.dataframe(d, use_container_width=True, hide_index=True, **kwargs)
+        return
+
+    df2 = d.copy()
+    col_cfg = {}
+
+    for c in df2.columns:
+        c_name = str(c).strip()
+        if "%" in c_name:
+            s = pd.to_numeric(df2[c], errors="coerce")
+            if s.notna().any():
+                # heurística: se a mediana > 1, assume que está em "percent" (14.9) e converte pra fração (0.149)
+                if s.dropna().median() > 1:
+                    df2[c] = s / 100.0
+                else:
+                    df2[c] = s
+
+            col_cfg[c] = st.column_config.NumberColumn(
+                c_name,
+                format="%.2f%%"
+            )
+
+    st.data_editor(
+        df2,
+        use_container_width=True,
+        hide_index=True,
+        disabled=True,
+        column_config=col_cfg,
+        **kwargs
+    )
+
 # ---------------------------
 # Upload
 # ---------------------------
@@ -189,14 +227,14 @@ if faltando:
 # Tradução do Tempo de retenção (CN -> PT-BR) + coluna amigável
 # ---------------------------
 MAPA_RETENCAO_PT = {
-    "1天滞留": "1 dia retido",
-    "2天滞留": "2 dias retido",
-    "3天滞留": "3 dias retido",
-    "5天滞留": "5 dias retido",
-    "7天滞留": "7 dias retido",
-    "10天滞留": "10 dias retido",
+    "1天滞留": "01 dia retido",
+    "2天滞留": "02 dias retido",
+    "3天滞留": "03 dias retido",
+    "5天滞留": "05 dias retido",
+    "7天滞留": "07 dias retido",
+    "10天滞留": "08 a 10 dias retido",
     "15天滞留": "15 dias retido",
-    "超15天滞留": "Acima de 15 dias retido",
+    "超15天滞留": "16+ dias retido",
 }
 
 df["Tempo de retenção (PT)"] = (
@@ -208,18 +246,18 @@ df["Tempo de retenção (PT)"] = (
 )
 
 ORDEM_RETEN_PT = [
-    "1 dia retido", "2 dias retido", "3 dias retido", "5 dias retido",
-    "7 dias retido", "10 dias retido", "15 dias retido", "Acima de 15 dias retido"
+    "01 dia retido", "02 dias retido", "03 dias retido", "05 dias retido",
+    "07 dias retido", "08 a 10 dias retido", "15 dias retido", "16+ dias retido"
 ]
 PESO_RETEN_PT = {
-    "1 dia retido": 1,
-    "2 dias retido": 2,
-    "3 dias retido": 3,
-    "5 dias retido": 5,
-    "7 dias retido": 7,
-    "10 dias retido": 10,
+    "01 dia retido": 1,
+    "02 dias retido": 2,
+    "03 dias retido": 3,
+    "05 dias retido": 5,
+    "07 dias retido": 7,
+    "08 a 10 dias retido": 10,
     "15 dias retido": 15,
-    "Acima de 15 dias retido": 20,
+    "16+ dias retido": 20,
 }
 
 # ---------------------------
@@ -371,12 +409,11 @@ with tab_ger:
     st.subheader("🚨 Alertas automáticos (unidades críticas)")
     if len(alertas_crit):
         st.error("Unidades críticas detectadas pelos critérios definidos.")
-        st.dataframe(
+        show_table(
             alertas_crit[[
                 "Nome da base de entrega","Tipo Unidade","Retidos","% Participação","Farol (%)",
                 "Qtd_>15dias","Media_Criticidade","Soma_Peso","Score Misto"
-            ]],
-            use_container_width=True
+            ]]
         )
     else:
         st.success("Nenhuma unidade crítica pelos critérios atuais.")
@@ -385,22 +422,19 @@ with tab_ger:
 
     with colA:
         st.subheader("🏆 Top Unidades por Volume (mais retidos)")
-        st.dataframe(
-            base_rank.sort_values(["Retidos","Media_Criticidade"], ascending=[False, False]).head(top_n),
-            use_container_width=True
+        show_table(
+            base_rank.sort_values(["Retidos","Media_Criticidade"], ascending=[False, False]).head(top_n)
         )
 
     with colB:
         st.subheader("⚠️ Top Unidades por Score Misto (volume + criticidade)")
-        st.dataframe(
-            base_rank.sort_values("Score Misto", ascending=False).head(top_n),
-            use_container_width=True
+        show_table(
+            base_rank.sort_values("Score Misto", ascending=False).head(top_n)
         )
 
     st.subheader("📍 Distribuição: quais dias de retenção concentram mais pedidos?")
-    st.dataframe(
-        reten_dist.sort_values("Retidos", ascending=False)[["Tempo de retenção (PT)","Retidos","%"]],
-        use_container_width=True
+    show_table(
+        reten_dist.sort_values("Retidos", ascending=False)[["Tempo de retenção (PT)","Retidos","%"]]
     )
 
     st.subheader("📉 Pareto (concentração do problema)")
@@ -409,15 +443,14 @@ with tab_ger:
     pareto["%_acum"] = pareto["Retidos_acum"] / max(pareto["Retidos"].sum(), 1)
     pct_top10 = float(pareto.head(min(10, len(pareto)))["Retidos"].sum() / max(pareto["Retidos"].sum(), 1))
     st.info(f"Top 10 unidades concentram **{pct_top10:.1%}** dos retidos (no recorte atual).")
-    st.dataframe(
-        pareto[["Nome da base de entrega","Tipo Unidade","Retidos","% Participação","Retidos_acum","%_acum"]].head(30),
-        use_container_width=True
+    show_table(
+        pareto[["Nome da base de entrega","Tipo Unidade","Retidos","% Participação","Retidos_acum","%_acum"]].head(30)
     )
 
     st.subheader("🚚 Motoristas que mais aparecem (no recorte)")
     if col_driver:
         if not top_drivers.empty:
-            st.dataframe(top_drivers, use_container_width=True)
+            show_table(top_drivers)
         else:
             st.warning(f"Coluna de motorista detectada: **{col_driver}**, mas está vazia no recorte.")
     else:
@@ -427,7 +460,7 @@ with tab_ger:
     st.subheader("🧾 Ocorrências que mais aparecem (no recorte)")
     if col_occ:
         if not top_occs.empty:
-            st.dataframe(top_occs, use_container_width=True)
+            show_table(top_occs)
         else:
             st.warning(f"Coluna de ocorrência detectada: **{col_occ}**, mas está vazia no recorte.")
     else:
@@ -453,9 +486,8 @@ with tab_det:
 
     st.subheader("📍 Distribuição de retenção (unidade)")
     dist_u = build_reten_dist(d_u)
-    st.dataframe(
-        dist_u.sort_values("Retidos", ascending=False)[["Tempo de retenção (PT)","Retidos","%"]],
-        use_container_width=True
+    show_table(
+        dist_u.sort_values("Retidos", ascending=False)[["Tempo de retenção (PT)","Retidos","%"]]
     )
 
     colX, colY = st.columns(2)
@@ -465,7 +497,7 @@ with tab_det:
         if col_driver:
             top_d_u = top_counts(d_u, col_driver, top_n)
             if not top_d_u.empty:
-                st.dataframe(top_d_u, use_container_width=True)
+                show_table(top_d_u)
             else:
                 st.info("Sem dados de motorista para essa unidade (ou coluna vazia).")
         else:
@@ -476,7 +508,7 @@ with tab_det:
         if col_occ:
             top_o_u = top_counts(d_u, col_occ, top_n)
             if not top_o_u.empty:
-                st.dataframe(top_o_u, use_container_width=True)
+                show_table(top_o_u)
             else:
                 st.info("Sem dados de ocorrência para essa unidade (ou coluna vazia).")
         else:
@@ -495,4 +527,4 @@ with tab_det:
         prefer.append(col_occ)
 
     cols_show = [c for c in prefer if c in d_u.columns] + [c for c in d_u.columns if c not in prefer]
-    st.dataframe(d_u[cols_show], use_container_width=True)
+    show_table(d_u[cols_show])
